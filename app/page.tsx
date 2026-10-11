@@ -46,16 +46,26 @@ export default function Home() {
   const [toast, setToast] = useState("");
   const [loading, setLoading] = useState(false);
   const [isDemo, setIsDemo] = useState(true);
+  const [authReady, setAuthReady] = useState(false);
+  const [userEmail, setUserEmail] = useState("");
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
   const [newDevice, setNewDevice] = useState({ name: "", host: "", target_type: "public" as TargetType, location_id: "loc-campus", category: "Network", interval_seconds: 60 });
   const [newLocation, setNewLocation] = useState({ name: "", type: "department", parent_id: "loc-campus" });
   const [historyDevice, setHistoryDevice] = useState<Device | null>(null);
 
   useEffect(() => {
     const sb = getSupabase();
-    if (!sb) return;
+    if (!sb) { setAuthReady(true); return; }
     setIsDemo(false);
     let alive = true;
     (async () => {
+      const { data: { session } } = await sb.auth.getSession();
+      if (!alive) return;
+      setAuthReady(true);
+      setUserEmail(session?.user.email || "");
+      if (!session) return;
       const { data: locs, error: le } = await sb.from("locations").select("id,name,location_type,parent_id,description").order("name");
       if (alive && !le && locs?.length) setLocations(locs.map((l: any) => ({ id: l.id, name: l.name, type: l.location_type, parent_id: l.parent_id, description: l.description })));
       const { data, error } = await sb.from("devices").select("id,name,host,target_type,location_id,enabled,interval_seconds,category,agent_id,current_status,current_latency_ms,current_packet_loss,last_checked_at").order("name");
@@ -135,6 +145,26 @@ export default function Home() {
     setToast(enabled ? "Monitoring enabled." : "Monitoring paused.");
   }
 
+  async function signIn(e: React.FormEvent) {
+    e.preventDefault();
+    const sb = getSupabase();
+    if (!sb) return;
+    setAuthBusy(true);
+    const { data, error } = await sb.auth.signInWithPassword({ email: loginEmail, password: loginPassword });
+    setAuthBusy(false);
+    if (error) { setToast(error.message); return; }
+    setUserEmail(data.user?.email || loginEmail);
+    setToast("Signed in successfully.");
+    window.location.reload();
+  }
+
+  async function signOut() {
+    const sb = getSupabase();
+    if (sb) await sb.auth.signOut();
+    setUserEmail("");
+    setToast("Signed out.");
+  }
+
   function exportCsv() {
     const rows = [["Name","Host","Type","Location","Status","Latency ms","Packet loss %","Last checked"], ...filteredDevices.map(d => [d.name,d.host,d.target_type,locationLabel(d.location_id),d.status,d.latency_ms ?? "",d.packet_loss, d.last_checked_at || ""])];
     const csv = rows.map(row => row.map(v => `"${String(v).replaceAll('"','""')}"`).join(",")).join("\n");
@@ -146,13 +176,15 @@ export default function Home() {
   const title = page === "Overview" ? "Network overview" : page === "Agents" ? "Monitoring agents" : page;
   const subtitle = page === "Overview" ? "Your infrastructure, at a glance." : page === "Devices" ? "Manage targets and inspect their reachability." : page === "Locations" ? "Organize devices in any hierarchy." : "Monitor health, trends, and operational activity.";
 
+  if (!isDemo && !authReady) return <div className="auth-screen"><div className="auth-card"><div className="brand-mark"><Activity size={20}/></div><h1>Connecting to NetPulse</h1><p>Checking your secure session…</p></div></div>;
+  if (!isDemo && authReady && !userEmail) return <div className="auth-screen"><form className="auth-card" onSubmit={signIn}><div className="brand-mark"><Activity size={20}/></div><div className="eyebrow"><span className="eyebrow-line"/>NETWORK OPERATIONS</div><h1>Welcome back</h1><p>Sign in to access your organization’s monitoring workspace.</p><label>Email address<input type="email" autoComplete="username" required value={loginEmail} onChange={e=>setLoginEmail(e.target.value)} placeholder="you@organization.com"/></label><label>Password<input type="password" autoComplete="current-password" required value={loginPassword} onChange={e=>setLoginPassword(e.target.value)} placeholder="Your password"/></label><button className="button button-primary auth-submit" type="submit" disabled={authBusy}>{authBusy?"Signing in…":"Sign in securely"}</button><span className="muted tiny">Access is controlled by your NetPulse Supabase project membership.</span></form>{toast&&<div className="toast"><AlertTriangle size={16}/><span>{toast}</span><button onClick={()=>setToast("")} aria-label="Dismiss"><X size={14}/></button></div>}</div>;
   return <div className="app-shell">
     <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
       <div className="brand"><div className="brand-mark"><Activity size={20}/></div><div><strong>netpulse</strong><span>NETWORK OPERATIONS</span></div></div>
       <div className="workspace"><div className="workspace-icon"><Building2 size={17}/></div><div className="workspace-text"><strong>My Organization</strong><span>Single workspace</span></div><ChevronDown size={15} className="muted"/></div>
       <div className="nav-label">WORKSPACE</div>
       <nav>{nav.map(({ label, icon: Icon }) => <button key={label} className={`nav-item ${page === label ? "active" : ""}`} onClick={() => navPage(label)}><Icon size={17}/><span>{label}</span>{label === "Incidents" && demoIncidents.filter(i=>i.status==="open").length > 0 && <em>{demoIncidents.filter(i=>i.status==="open").length}</em>}</button>)}</nav>
-      <div className="sidebar-bottom"><div className="system-card"><span className="pulse-dot"/><div><strong>Monitoring system</strong><span>{isDemo ? "Demo environment" : "Supabase connected"}</span></div></div><button className="profile"><div className="avatar">NP</div><div><strong>Network Admin</strong><span>Administrator</span></div><MoreHorizontal size={18} className="muted"/></button></div>
+      <div className="sidebar-bottom"><div className="system-card"><span className="pulse-dot"/><div><strong>Monitoring system</strong><span>{isDemo ? "Demo environment" : "Supabase connected"}</span></div></div><button className="profile" onClick={signOut}><div className="avatar">NP</div><div><strong>{userEmail || "Network Admin"}</strong><span>{isDemo ? "Demo administrator" : "Sign out"}</span></div><MoreHorizontal size={18} className="muted"/></button></div>
     </aside>
     {sidebarOpen && <button className="mobile-scrim" onClick={() => setSidebarOpen(false)} aria-label="Close navigation"/>}
     <main className="main">
@@ -208,7 +240,8 @@ function DeviceTable({ devices, locations, onPing, onHistory, onToggle, empty }:
 function LocationBranch({ location, locations, devices, onSelect, depth = 0 }: { location: Location; locations: Location[]; devices: Device[]; onSelect: (id:string)=>void; depth?: number }) {
   const [open, setOpen] = useState(depth < 2);
   const children = locations.filter(l=>l.parent_id===location.id);
-  const total = devices.filter(d=>d.location_id===location.id || descendants(l=>l.id===location.id, locations, d.location_id)).length;
+  const childIds = descendants(l=>l.id===location.id, locations, location.id);
+  const total = devices.filter(d=>childIds.has(d.location_id)).length;
   return <div className="location-branch"><div className="location-tree-row" style={{paddingLeft:depth*18}}><button className="tree-toggle" onClick={()=>setOpen(!open)} aria-label={open?"Collapse location":"Expand location"}>{children.length ? open?<ChevronDown size={14}/>:<ChevronRight size={14}/>:<span className="tree-spacer"/>}</button><span className="tree-icon">{location.type==="site"?<Building2 size={16}/>:location.type==="building"?<Building2 size={15}/>:location.type==="floor"?<HardDrive size={15}/>:<MapPin size={15}/>}</span><button className="tree-name" onClick={()=>onSelect(location.id)}><strong>{location.name}</strong><span>{location.type}</span></button><span className="tree-count">{total} devices</span><button className="tree-open" onClick={()=>onSelect(location.id)} aria-label={`View devices at ${location.name}`}><ArrowUpRight size={14}/></button></div>{open&&children.map(c=><LocationBranch key={c.id} location={c} locations={locations} devices={devices} onSelect={onSelect} depth={depth+1}/>)}</div>;
 }
 function descendants(_predicate: (l: Location)=>boolean, locations: Location[], locationId: string) {
