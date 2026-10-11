@@ -29,7 +29,7 @@ def validate_private_target(host: str) -> str:
     if not re.fullmatch(r"(?=.{1,253}$)(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)(?:\.(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?))*", host):
         raise ValueError("Invalid hostname.")
     addresses = {r[4][0] for r in socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)}
-    if not addresses or any(not ipaddress.ip_address(a).is_private for a in addresses):
+    if not addresses or any((lambda ip: not ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified)(ipaddress.ip_address(a)) for a in addresses):
         raise ValueError("Private hostnames must resolve only to private addresses.")
     return host
 
