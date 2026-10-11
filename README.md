@@ -41,6 +41,7 @@ NetPulse does not seed sample inventory or hardcoded master data. A fresh instal
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY` (server-side secret only)
 - `WORKER_TOKEN` (random secret used to authorize worker endpoints if enabled)
+- `ALERT_WEBHOOK_URL` (optional HTTPS JSON webhook for incident-opened and recovery events; delivery errors do not stop checks)
 - `CHECK_INTERVAL_SECONDS` (default 60)
 - `PING_ATTEMPTS` (default 3)
 - `PING_TIMEOUT_SECONDS` (default 2)
@@ -98,4 +99,4 @@ The schema migrations 001–002 are provisioned in the NetPulse Supabase project
 - The overview chart shows recent persisted fleet ping results, not synthetic data. The availability percentage on the overview is a current-state snapshot, not a time-weighted SLA.
 - Migration 003 creates a unique index allowing at most one open/acknowledged incident per device. Review existing incident rows before applying it if migrating a non-empty environment.
 - CI runs Python unit tests, TypeScript checks, and a Next.js production build. Passing CI is necessary but not a substitute for staging checks, ICMP capability checks, database migration review, and end-to-end testing.
-- Alert delivery channels (email/SMS/chat/webhook), SNMP polling, service-level HTTP/TCP checks, multi-tenant isolation, and HA scheduler leasing are not implemented by this ICMP-first V1. Do not represent them as available until implemented and tested.
+- Generic HTTPS JSON webhook alerts are supported through `ALERT_WEBHOOK_URL`; email/SMS-specific delivery, SNMP polling, service-level HTTP/TCP checks, multi-tenant isolation, and HA scheduler leasing are not implemented by this ICMP-first V1. Webhook delivery must be configured and verified separately.
