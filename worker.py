@@ -74,9 +74,19 @@ def validate_public_target(host: str) -> str:
 def ping(host: str, attempts: int = ATTEMPTS, timeout: int = TIMEOUT) -> dict[str, Any]:
     """Probe with icmplib's unprivileged ICMP datagram sockets (no system ping binary)."""
     host = validate_public_target(host)
+    # Pin hostname checks to a freshly resolved, verified public IP to avoid a
+    # second DNS lookup inside the ICMP library changing the destination.
+    try:
+        ipaddress.ip_address(host)
+        probe_host = host
+    except ValueError:
+        addresses = {item[4][0] for item in socket.getaddrinfo(host, None, type=socket.SOCK_DGRAM)}
+        if not addresses or any(not ipaddress.ip_address(address).is_global for address in addresses):
+            raise ValueError("Public hostname resolved to a non-public address.")
+        probe_host = sorted(addresses)[0]
     try:
         result = icmp_ping(
-            host,
+            probe_host,
             count=attempts,
             interval=0.2,
             timeout=timeout,
