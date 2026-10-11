@@ -9,11 +9,10 @@ import asyncio
 import hashlib
 import ipaddress
 import os
-import platform
 import re
 import socket
-import subprocess
 import time
+import hmac
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
@@ -21,11 +20,13 @@ from urllib.parse import urlparse
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
+from icmplib import ping as icmp_ping
 
 app = FastAPI(title="NetPulse Worker", version="0.1.0")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
 SERVICE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 WORKER_TOKEN = os.getenv("WORKER_TOKEN", "")
+ALERT_WEBHOOK_URL = os.getenv("ALERT_WEBHOOK_URL", "").strip()
 INTERVAL = max(15, int(os.getenv("CHECK_INTERVAL_SECONDS", "60")))
 ATTEMPTS = max(1, min(5, int(os.getenv("PING_ATTEMPTS", "3"))))
 TIMEOUT = max(1, min(5, int(os.getenv("PING_TIMEOUT_SECONDS", "2"))))
@@ -72,30 +73,44 @@ def validate_public_target(host: str) -> str:
     return host
 
 def ping(host: str, attempts: int = ATTEMPTS, timeout: int = TIMEOUT) -> dict[str, Any]:
-    """Run the platform ping binary with bounded arguments and parse average RTT."""
+    """Probe with icmplib's unprivileged ICMP datagram sockets (no system ping binary)."""
     host = validate_public_target(host)
-    is_windows = platform.system().lower() == "windows"
-    if is_windows:
-        command = ["ping", "-n", str(attempts), "-w", str(timeout * 1000), host]
-    else:
-        command = ["ping", "-n", "-c", str(attempts), "-W", str(timeout), host]
-    start = time.monotonic()
+    # Pin hostname checks to a freshly resolved, verified public IP to avoid a
+    # second DNS lookup inside the ICMP library changing the destination.
     try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=attempts * timeout + 3, check=False)
-        output = result.stdout + "\n" + result.stderr
-    except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
-        return {"success": False, "latency_ms": None, "packet_loss": 100, "error": "ping timed out" if isinstance(exc, subprocess.TimeoutExpired) else "ping binary is not installed"}
-    match = re.search(r"(?:rtt|round-trip).*?=\s*([\d.]+)/([\d.]+)/([\d.]+)", output, re.I)
-    if not match:
-        match = re.search(r"Average =\s*(\d+)ms", output, re.I)
-        latency = float(match.group(1)) if match else None
-    else:
-        latency = float(match.group(2))
-    loss_match = re.search(r"(\d+(?:\.\d+)?)%\s*packet loss", output, re.I)
-    loss = int(round(float(loss_match.group(1)))) if loss_match else (0 if result.returncode == 0 else 100)
-    success = result.returncode == 0 and latency is not None
-    return {"success": success, "latency_ms": round(latency, 2) if success else None, "packet_loss": loss, "error": None if success else "No ICMP echo reply"}
-    
+        ipaddress.ip_address(host)
+        probe_host = host
+    except ValueError:
+        addresses = {item[4][0] for item in socket.getaddrinfo(host, None, type=socket.SOCK_DGRAM)}
+        if not addresses or any(not ipaddress.ip_address(address).is_global for address in addresses):
+            raise ValueError("Public hostname resolved to a non-public address.")
+        probe_host = sorted(addresses)[0]
+    try:
+        result = icmp_ping(
+            probe_host,
+            count=attempts,
+            interval=0.2,
+            timeout=timeout,
+            privileged=False,
+        )
+    except (OSError, TimeoutError, ValueError) as exc:
+        return {
+            "success": False,
+            "latency_ms": None,
+            "packet_loss": 100,
+            "error": f"ICMP probe failed: {type(exc).__name__}",
+        }
+    received = int(getattr(result, "packets_received", 0) or 0)
+    loss = int(round(float(getattr(result, "packet_loss", 100) or 0)))
+    success = bool(getattr(result, "is_alive", False)) and received > 0
+    avg = float(getattr(result, "avg_rtt", 0) or 0)
+    return {
+        "success": success,
+        "latency_ms": round(avg, 2) if success else None,
+        "packet_loss": max(0, min(100, loss)),
+        "error": None if success else "No ICMP echo reply",
+    }
+
 async def sb_request(method: str, table: str, *, params: dict[str, str] | None = None, body: Any = None) -> Any:
     if not SUPABASE_URL or not SERVICE_KEY:
         raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.")
@@ -106,7 +121,7 @@ async def sb_request(method: str, table: str, *, params: dict[str, str] | None =
         return response.json() if response.content else None
 
 async def authorize(x_worker_token: str | None = Header(default=None)):
-    if not WORKER_TOKEN or not x_worker_token or x_worker_token != WORKER_TOKEN:
+    if not WORKER_TOKEN or not x_worker_token or not hmac.compare_digest(x_worker_token, WORKER_TOKEN):
         raise HTTPException(status_code=401, detail="Invalid worker token.")
 
 async def authorize_agent(agent_id: str, authorization: str | None) -> dict[str, Any]:
@@ -126,7 +141,7 @@ async def authorize_agent(agent_id: str, authorization: str | None) -> dict[str,
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "netpulse-worker", "time": datetime.now(timezone.utc).isoformat(), "last_scheduler_run": last_scheduler_run}
+    return {"status": "ok", "service": "netpulse-worker", "time": datetime.now(timezone.utc).isoformat(), "database_configured": bool(SUPABASE_URL and SERVICE_KEY), "scheduler_enabled": scheduler_task is not None and not scheduler_task.done(), "last_scheduler_run": last_scheduler_run}
 
 @app.post("/api/ping")
 async def ping_preview(request: PingRequest, _=Depends(authorize)):
@@ -136,7 +151,8 @@ async def ping_preview(request: PingRequest, _=Depends(authorize)):
         host = validate_public_target(request.host)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {**ping(host), "host": host, "checked_at": datetime.now(timezone.utc).isoformat()}
+    result = await asyncio.to_thread(ping, host)
+    return {**result, "host": host, "checked_at": datetime.now(timezone.utc).isoformat()}
 
 @app.get("/api/agents/{agent_id}/tasks")
 async def agent_tasks(agent_id: str, authorization: str | None = Header(default=None)):
@@ -176,13 +192,57 @@ async def agent_results(result: AgentResult, authorization: str | None = Header(
     await update_incident_state(result.device_id, result.success, checked_at)
     return {"accepted": True}
 
+async def notify_event(event: str, device_id: str, title: str, checked_at: str) -> None:
+    """Send optional HTTPS JSON alerts; delivery failures never stop monitoring."""
+    if not ALERT_WEBHOOK_URL:
+        return
+    parsed = urlparse(ALERT_WEBHOOK_URL)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        print("NetPulse alert webhook skipped: URL must be HTTPS without embedded credentials.")
+        return
+    payload = {
+        "text": f"NetPulse {event}: {title} (device {device_id}) at {checked_at}",
+        "event": event,
+        "device_id": device_id,
+        "title": title,
+        "checked_at": checked_at,
+        "service": "netpulse",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            response = await client.post(ALERT_WEBHOOK_URL, json=payload)
+            response.raise_for_status()
+    except Exception as exc:
+        print(f"NetPulse alert delivery failed: {type(exc).__name__}")
+
+
 async def update_incident_state(device_id: str, success: bool, checked_at: str):
-    """Open one incident on failure and resolve open incidents after recovery."""
-    open_rows = await sb_request("GET", "incidents", params={"select": "id", "device_id": f"eq.{device_id}", "status": "eq.open", "limit": "1"})
-    if not success and not open_rows:
-        await sb_request("POST", "incidents", body={"device_id": device_id, "title": "Ping target unreachable", "severity": "critical", "status": "open", "started_at": checked_at})
-    elif success and open_rows:
-        await sb_request("PATCH", "incidents", params={"device_id": f"eq.{device_id}", "status": "eq.open"}, body={"status": "resolved", "resolved_at": checked_at})
+    """Debounce transient packet loss; recover both open and acknowledged incidents."""
+    active = await sb_request(
+        "GET", "incidents",
+        params={"select": "id,status", "device_id": f"eq.{device_id}", "status": "in.(open,acknowledged)", "limit": "1"},
+    )
+    if success:
+        if active:
+            await sb_request(
+                "PATCH", "incidents",
+                params={"device_id": f"eq.{device_id}", "status": "in.(open,acknowledged)"},
+                body={"status": "resolved", "resolved_at": checked_at},
+            )
+            await notify_event("recovered", device_id, "Target reachable again", checked_at)
+        return
+    # Require two consecutive failed checks before opening an incident to reduce alert flapping.
+    recent = await sb_request(
+        "GET", "ping_results",
+        params={"select": "success", "device_id": f"eq.{device_id}", "order": "checked_at.desc", "limit": "2"},
+    )
+    consecutive_failures = len(recent or []) >= 2 and all(row.get("success") is False for row in recent[:2])
+    if consecutive_failures and not active:
+        await sb_request(
+            "POST", "incidents",
+            body={"device_id": device_id, "title": "Ping target unreachable", "severity": "critical", "status": "open", "started_at": checked_at},
+        )
+        await notify_event("incident_opened", device_id, "Ping target unreachable", checked_at)
 
 async def process_public_jobs():
     jobs = await sb_request("GET", "ping_jobs", params={"select": "id,device_id", "status": "eq.queued", "order": "created_at.asc", "limit": "100"})

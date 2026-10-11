@@ -1,0 +1,79 @@
+/* Operator-first NOC skin: compact, calm, readable, and status-led. */
+:root {
+  --mint: #75c78d;
+  --blue: #7fa9d4;
+  --bg: #111512;
+  --panel: #181d19;
+  --muted: #929b91;
+}
+body { background: #111512; color: #e4e8e1; letter-spacing: 0; }
+.app-shell { background: #111512; }
+.sidebar { background: #171c18; border-right: 1px solid #30382f; }
+.brand-mark { border-radius: 5px; background: #263b2b; color: #a5d6a8; }
+.brand strong { letter-spacing: -.2px; font-size: 18px; }
+.brand span, .nav-label, .eyebrow { letter-spacing: .7px; }
+.workspace, .system-card { border-radius: 4px; background: #1d241e; border-color: #303a30; }
+.nav-item { border-radius: 3px; color: #b1b9af; }
+.nav-item.active { background: #26352a; color: #d9f1d9; box-shadow: inset 3px 0 #83bf8a; }
+.nav-item:hover { background: #222b23; }
+.main { background: #111512; }
+.topbar { background: #171c18; border-bottom: 1px solid #30382f; }
+.content { max-width: 1700px; }
+.page-heading { margin-bottom: 18px; }
+.page-heading h1 { font-size: 25px; font-weight: 620; letter-spacing: -.35px; }
+.page-heading p, .panel-header p { color: #a0a99f; }
+.eyebrow { color: #a4b0a1; }
+.eyebrow-line { background: #79bd81; }
+.panel, .stat-card, .auth-card, .modal, .agent-card {
+  border-radius: 5px !important;
+  background: #181d19;
+  border-color: #30382f;
+  box-shadow: none;
+}
+.stat-card { min-height: 120px; padding: 16px 17px; }
+.stat-top { color: #b5bdb2; }
+.stat-icon { border-radius: 4px; }
+.stat-value { font-size: 28px; font-weight: 620; letter-spacing: -.4px; }
+.stat-detail { color: #a0a99f; }
+.button, .icon-button, .range-select, .filters select, .search-box, .settings-card select {
+  border-radius: 4px !important;
+  box-shadow: none !important;
+}
+.button-primary { background: #315c39; border: 1px solid #47794e; color: #f0f7ef; }
+.button-primary:hover { background: #3b6c44; }
+.button-secondary { background: #202720; border-color: #3a4439; color: #d3dbd0; }
+.button-secondary:hover { background: #293329; }
+.text-button { color: #9ed4a0; }
+.demo-banner { border-radius: 4px; background: #28251a; border-color: #665631; color: #e5d8a7; }
+.panel-header { border-bottom-color: #30382f; }
+.device-table th { background: #202620; color: #a6b0a4; border-color: #333c32; font-size: 10px; }
+.device-table td { border-color: #2b332a; font-size: 11px; }
+.device-table tbody tr:hover, .location-tree-row:hover { background: #202720; }
+.device-icon, .empty-icon, .agent-icon { border-radius: 4px; }
+.status-pill { border-radius: 3px; font-size: 10px; padding: 4px 7px; }
+.status-up { background: #1d3824; color: #9ed9a3; }
+.status-down { background: #432523; color: #ffaaa1; }
+.status-unknown { background: #2a302b; color: #c0c8bd; }
+.status-maintenance { background: #403820; color: #e9d08a; }
+.network-tag { border-radius: 3px; }
+.incident-row { border-bottom-color: #2c342b; }
+.incident-icon { border-radius: 4px; }
+.incident-icon.critical { background: #432523; }
+.incident-icon.warning { background: #403820; }
+.health-ring { filter: none; }
+.health-note, .footer { border-color: #30382f; }
+.chart-wrap { filter: saturate(.72); }
+.filters { background: #181d19; border-color: #30382f; }
+.search-box, .filters select, .settings-card select, .modal input, .modal select, .auth-card input {
+  background: #111612; border-color: #394337; color: #e4e8e1;
+}
+.modal-backdrop { backdrop-filter: none; background: #080b08d9; }
+.modal { border-radius: 5px !important; }
+.toast { border-radius: 4px; background: #202b21; border-color: #426347; }
+.auth-screen { background: #111512; }
+.auth-card { border-radius: 5px !important; }
+.auth-card h1 { letter-spacing: -.3px; }
+.pulse-dot { box-shadow: none; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
