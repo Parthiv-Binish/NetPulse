@@ -17,6 +17,21 @@ create table public.organization_settings (
   updated_at timestamptz not null default now()
 );
 
+create table public.organization_members (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  role text not null default 'operator' check (role in ('admin','operator','viewer')),
+  created_at timestamptz not null default now()
+);
+alter table public.organization_members enable row level security;
+create policy "members can read own membership" on public.organization_members for select to authenticated using (user_id = auth.uid());
+
+create or replace function public.is_netpulse_member()
+returns boolean language sql stable security definer set search_path = public
+as $ select exists (select 1 from public.organization_members where user_id = auth.uid()) $;
+create or replace function public.is_netpulse_admin()
+returns boolean language sql stable security definer set search_path = public
+as $ select exists (select 1 from public.organization_members where user_id = auth.uid() and role = 'admin') $;
+
 create table public.locations (
   id uuid primary key default gen_random_uuid(),
   name text not null check (length(trim(name)) between 1 and 120),
@@ -148,21 +163,21 @@ alter table public.incidents enable row level security;
 alter table public.maintenance_windows enable row level security;
 alter table public.audit_log enable row level security;
 
-create policy "authenticated read settings" on public.organization_settings for select to authenticated using (true);
-create policy "authenticated update settings" on public.organization_settings for update to authenticated using (true) with check (true);
-create policy "authenticated read locations" on public.locations for select to authenticated using (true);
-create policy "authenticated manage locations" on public.locations for all to authenticated using (true) with check (true);
-create policy "authenticated read agents" on public.monitoring_agents for select to authenticated using (true);
-create policy "authenticated read devices" on public.devices for select to authenticated using (true);
-create policy "authenticated manage devices" on public.devices for all to authenticated using (true) with check (true);
-create policy "authenticated read results" on public.ping_results for select to authenticated using (true);
-create policy "authenticated read jobs" on public.ping_jobs for select to authenticated using (true);
-create policy "authenticated create jobs" on public.ping_jobs for insert to authenticated with check (true);
-create policy "authenticated read incidents" on public.incidents for select to authenticated using (true);
-create policy "authenticated update incidents" on public.incidents for update to authenticated using (true) with check (true);
-create policy "authenticated read maintenance" on public.maintenance_windows for select to authenticated using (true);
-create policy "authenticated manage maintenance" on public.maintenance_windows for all to authenticated using (true) with check (true);
-create policy "authenticated read audit log" on public.audit_log for select to authenticated using (true);
+create policy "authenticated read settings" on public.organization_settings for select to authenticated using (public.is_netpulse_member());
+create policy "authenticated update settings" on public.organization_settings for update to authenticated using (public.is_netpulse_member()) with check (true);
+create policy "authenticated read locations" on public.locations for select to authenticated using (public.is_netpulse_member());
+create policy "authenticated manage locations" on public.locations for all to authenticated using (public.is_netpulse_member()) with check (true);
+create policy "authenticated read agents" on public.monitoring_agents for select to authenticated using (public.is_netpulse_member());
+create policy "authenticated read devices" on public.devices for select to authenticated using (public.is_netpulse_member());
+create policy "authenticated manage devices" on public.devices for all to authenticated using (public.is_netpulse_member()) with check (true);
+create policy "authenticated read results" on public.ping_results for select to authenticated using (public.is_netpulse_member());
+create policy "authenticated read jobs" on public.ping_jobs for select to authenticated using (public.is_netpulse_member());
+create policy "authenticated create jobs" on public.ping_jobs for insert to authenticated with check (public.is_netpulse_member());
+create policy "authenticated read incidents" on public.incidents for select to authenticated using (public.is_netpulse_member());
+create policy "authenticated update incidents" on public.incidents for update to authenticated using (public.is_netpulse_member()) with check (true);
+create policy "authenticated read maintenance" on public.maintenance_windows for select to authenticated using (public.is_netpulse_member());
+create policy "authenticated manage maintenance" on public.maintenance_windows for all to authenticated using (public.is_netpulse_member()) with check (true);
+create policy "authenticated read audit log" on public.audit_log for select to authenticated using (public.is_netpulse_member());
 
 -- The organization has one default settings row. Adjust the name after provisioning.
 insert into public.organization_settings(name) values ('My Organization');
