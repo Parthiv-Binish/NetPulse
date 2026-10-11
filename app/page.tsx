@@ -53,6 +53,7 @@ export default function Home() {
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
+  const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
   const [newDevice, setNewDevice] = useState({ name: "", host: "", target_type: "public" as TargetType, location_id: "", category: "", interval_seconds: 60 });
   const [newLocation, setNewLocation] = useState({ name: "", type: "other", parent_id: "" });
   const [historyDevice, setHistoryDevice] = useState<Device | null>(null);
@@ -192,6 +193,26 @@ export default function Home() {
     window.location.reload();
   }
 
+  async function signUp(e: React.FormEvent) {
+    e.preventDefault();
+    const sb = getSupabase();
+    if (!sb) { setToast("Supabase is not configured."); return; }
+    setAuthBusy(true);
+    const { data, error } = await sb.auth.signUp({
+      email: loginEmail.trim(),
+      password: loginPassword,
+      options: { emailRedirectTo: `${window.location.origin}/verify-email` }
+    });
+    setAuthBusy(false);
+    if (error) { setToast(error.message); return; }
+    if (data.session) {
+      setToast("Account created and signed in.");
+      window.location.reload();
+      return;
+    }
+    window.location.href = `/verify-email?email=${encodeURIComponent(loginEmail.trim())}&sent=1`;
+  }
+
   async function signOut() {
     const sb = getSupabase();
     if (sb) await sb.auth.signOut();
@@ -211,7 +232,7 @@ export default function Home() {
   const subtitle = page === "Overview" ? "Your infrastructure, at a glance." : page === "Devices" ? "Manage targets and inspect their reachability." : page === "Locations" ? "Organize devices in any hierarchy." : "Monitor health, trends, and operational activity.";
 
   if (!isDemo && !authReady) return <div className="auth-screen"><div className="auth-card"><div className="brand-mark"><Activity size={20}/></div><h1>Connecting to NetPulse</h1><p>Checking your secure session…</p></div></div>;
-  if (!isDemo && authReady && !userEmail) return <div className="auth-screen"><form className="auth-card" onSubmit={signIn}><div className="brand-mark"><Activity size={20}/></div><div className="eyebrow"><span className="eyebrow-line"/>NETWORK OPERATIONS</div><h1>Welcome back</h1><p>Sign in to access your organization’s monitoring workspace.</p><label>Email address<input type="email" autoComplete="username" required value={loginEmail} onChange={e=>setLoginEmail(e.target.value)} placeholder="you@organization.com"/></label><label>Password<input type="password" autoComplete="current-password" required value={loginPassword} onChange={e=>setLoginPassword(e.target.value)} placeholder="Your password"/></label><button className="button button-primary auth-submit" type="submit" disabled={authBusy}>{authBusy?"Signing in…":"Sign in securely"}</button><span className="muted tiny">Access is controlled by your NetPulse Supabase project membership.</span></form>{toast&&<div className="toast"><AlertTriangle size={16}/><span>{toast}</span><button onClick={()=>setToast("")} aria-label="Dismiss"><X size={14}/></button></div>}</div>;
+  if (!isDemo && authReady && !userEmail) return <div className="auth-screen"><form className="auth-card" onSubmit={authMode === "signin" ? signIn : signUp}><div className="brand-mark"><Activity size={20}/></div><div className="eyebrow"><span className="eyebrow-line"/>NETWORK OPERATIONS</div><h1>{authMode === "signin" ? "Welcome back" : "Create your account"}</h1><p>{authMode === "signin" ? "Sign in to access your organization’s monitoring workspace." : "Create an account. We’ll send a verification link to your email before you can sign in."}</p><label>Email address<input type="email" autoComplete="username" required value={loginEmail} onChange={e=>setLoginEmail(e.target.value)} placeholder="you@organization.com"/></label><label>Password<input type="password" autoComplete={authMode === "signin" ? "current-password" : "new-password"} minLength={8} required value={loginPassword} onChange={e=>setLoginPassword(e.target.value)} placeholder={authMode === "signin" ? "Your password" : "At least 8 characters"}/></label><button className="button button-primary auth-submit" type="submit" disabled={authBusy}>{authBusy ? (authMode === "signin" ? "Signing in…" : "Creating account…") : (authMode === "signin" ? "Sign in securely" : "Create account")}</button><button className="button button-secondary auth-submit" type="button" onClick={() => setAuthMode(authMode === "signin" ? "signup" : "signin")}>{authMode === "signin" ? "New here? Create an account" : "Already registered? Sign in"}</button><span className="muted tiny">Access is controlled by your NetPulse Supabase project membership. New accounts must verify their email and be granted workspace access.</span></form>{toast&&<div className="toast"><AlertTriangle size={16}/><span>{toast}</span><button onClick={()=>setToast("")} aria-label="Dismiss"><X size={14}/></button></div>}</div>;
   return <div className="app-shell">
     <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
       <div className="brand"><div className="brand-mark"><Activity size={20}/></div><div><strong>netpulse</strong><span>NETWORK OPERATIONS</span></div></div>
