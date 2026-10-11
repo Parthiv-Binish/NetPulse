@@ -183,8 +183,8 @@ create policy "authenticated read maintenance" on public.maintenance_windows for
 create policy "authenticated manage maintenance" on public.maintenance_windows for all to authenticated using (public.is_netpulse_operator()) with check (public.is_netpulse_operator());
 create policy "authenticated read audit log" on public.audit_log for select to authenticated using (public.is_netpulse_member());
 
--- The organization has one default settings row. Adjust the name after provisioning.
-insert into public.organization_settings(name) values ('My Organization');
+-- No master-data or tenant records are seeded. Create organization settings, locations,
+-- devices, and agents through authenticated setup flows after provisioning.
 
 -- V1 uses an explicit membership allowlist. Add each trusted Auth user to organization_members.
 -- Disable public sign-ups. Admins can manage inventory; operators can edit inventory and incidents;
