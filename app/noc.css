@@ -93,3 +93,9 @@ body { background: #111512; color: #e4e8e1; letter-spacing: 0; }
 .verify-back{display:flex;align-items:center;gap:7px;justify-content:center;margin-top:18px;color:#9eacc0;font-size:12px;text-decoration:none}
 .verify-back:hover{color:#69e2b1}
 .verify-footer{display:flex;align-items:center;gap:8px;border-top:1px solid #202b3b;margin-top:28px;padding-top:16px;color:#73839a;font-size:9px;letter-spacing:1.1px}
+
+
+.auth-reset-link { text-align: center; margin: -0.25rem 0 0.5rem; font-size: 0.82rem; }
+.auth-reset-link a { color: var(--mint, #69e2b1); text-decoration: none; }
+.auth-reset-link a:hover { text-decoration: underline; }
+.auth-message { color: #f0b8a8; font-size: 0.85rem; margin: 0.25rem 0; }
