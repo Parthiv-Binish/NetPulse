@@ -78,3 +78,12 @@ python -m unittest discover -s tests -v
 5. Test a known reachable target, a blocked-ICMP target, agent disconnect, and recovery before enabling notifications.
 
 This is an initial V1 implementation scaffold. Production rollout still requires provisioning the dedicated Supabase project, configuring secrets, reviewing the SQL policies, and testing from the actual target networks.
+
+
+## Private agent enrollment
+
+1. Create a trusted Supabase Auth user and add the user UUID to `organization_members` with role `admin` using the SQL editor. Example: `insert into public.organization_members(user_id, role) values ('YOUR_AUTH_USER_UUID', 'admin');`. Replace the placeholder with the real Auth UUID.
+2. Disable public sign-ups in Supabase Auth for this single-organization deployment.
+3. Generate a random agent token, for example with `openssl rand -hex 32`. Store only its SHA-256 hash in `monitoring_agents.token_hash`: `insert into public.monitoring_agents(name, token_hash) values ('LAN Agent', encode(digest('PASTE_RANDOM_TOKEN_HERE', 'sha256'), 'hex')) returning id;`.
+4. Configure `NETPULSE_AGENT_ID` with the returned UUID and `NETPULSE_AGENT_TOKEN` with the original random token. Assign each private device to that agent using `devices.agent_id`.
+5. Install the agent on a machine inside the relevant network and allow outbound HTTPS to the worker URL plus ICMP to the approved target devices.
