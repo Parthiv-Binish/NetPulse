@@ -6,6 +6,7 @@ free/sleeping plan is not suitable for reliable continuous monitoring.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import ipaddress
 import os
 import platform
@@ -107,6 +108,21 @@ async def authorize(x_worker_token: str | None = Header(default=None)):
     if not WORKER_TOKEN or not x_worker_token or x_worker_token != WORKER_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid worker token.")
 
+async def authorize_agent(agent_id: str, authorization: str | None) -> dict[str, Any]:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Agent token required.")
+    token = authorization.removeprefix("Bearer ").strip()
+    if len(token) < 24:
+        raise HTTPException(status_code=401, detail="Invalid agent token.")
+    try:
+        rows = await sb_request("GET", "monitoring_agents", params={"select": "id,token_hash", "id": f"eq.{agent_id}", "limit": "1"})
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Agent authentication unavailable.") from exc
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    if not rows or not __import__("hmac").compare_digest(str(rows[0].get("token_hash", "")), digest):
+        raise HTTPException(status_code=401, detail="Invalid agent credentials.")
+    return rows[0]
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "netpulse-worker", "time": datetime.now(timezone.utc).isoformat(), "last_scheduler_run": last_scheduler_run}
@@ -121,10 +137,32 @@ async def ping_preview(request: PingRequest, _=Depends(authorize)):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {**ping(host), "host": host, "checked_at": datetime.now(timezone.utc).isoformat()}
 
+@app.get("/api/agents/{agent_id}/tasks")
+async def agent_tasks(agent_id: str, authorization: str | None = Header(default=None)):
+    await authorize_agent(agent_id, authorization)
+    now = datetime.now(timezone.utc)
+    await sb_request("PATCH", "monitoring_agents", params={"id": f"eq.{agent_id}"}, body={"status": "online", "last_seen_at": now.isoformat()})
+    rows = await sb_request("GET", "devices", params={"select": "id,host,interval_seconds,last_checked_at", "agent_id": f"eq.{agent_id}", "target_type": "eq.private", "enabled": "eq.true"})
+    tasks = []
+    for device in rows or []:
+        last = device.get("last_checked_at")
+        if last:
+            try:
+                elapsed = (now - datetime.fromisoformat(last.replace("Z", "+00:00"))).total_seconds()
+                if elapsed < int(device.get("interval_seconds") or INTERVAL):
+                    continue
+            except (ValueError, TypeError):
+                pass
+        tasks.append({"device_id": device["id"], "host": device["host"]})
+    return {"tasks": tasks, "server_time": now.isoformat()}
+
 @app.post("/api/agent-results")
-async def agent_results(result: AgentResult, _=Depends(authorize)):
+async def agent_results(result: AgentResult, authorization: str | None = Header(default=None)):
+    await authorize_agent(result.agent_id, authorization)
     checked_at = (result.checked_at or datetime.now(timezone.utc)).isoformat()
-    await sb_request("POST", "ping_results", body={"device_id": result.device_id, "checked_at": checked_at, "success": result.success, "latency_ms": result.latency_ms, "packet_loss": result.packet_loss, "error": result.error, "source": "agent", "agent_id": result.agent_id})
+    payload = {"device_id": result.device_id, "checked_at": checked_at, "success": result.success, "latency_ms": result.latency_ms, "packet_loss": result.packet_loss, "error": result.error, "source": "agent", "agent_id": result.agent_id}
+    await sb_request("POST", "ping_results", body=payload)
+    await sb_request("PATCH", "devices", params={"id": f"eq.{result.device_id}", "agent_id": f"eq.{result.agent_id}", "target_type": "eq.private"}, body={"last_checked_at": checked_at, "current_status": "up" if result.success else "down", "current_latency_ms": result.latency_ms, "current_packet_loss": result.packet_loss})
     return {"accepted": True}
 
 async def check_due_devices():
