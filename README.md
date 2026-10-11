@@ -6,7 +6,7 @@ NetPulse is a single-organization, ICMP-first network availability monitor for p
 
 - **Web:** Next.js App Router, TypeScript, Tailwind CSS; deploy on Vercel.
 - **Data and auth:** Supabase PostgreSQL, Auth, and Row Level Security.
-- **Public checks:** Python worker service; deploy on Render or another always-on worker host.
+- **Public checks:** Python worker service using `icmplib`; deploy on an always-on worker host.
 - **Private checks:** Python agent deployed inside the target LAN. It makes outbound HTTPS requests only.
 - **Tests:** Python unittest for target validation and ping parsing.
 
@@ -25,7 +25,7 @@ NetPulse is a single-organization, ICMP-first network availability monitor for p
 2. Copy `.env.example` to `.env.local` and configure Supabase values.
 3. Install dependencies: `npm install`.
 4. Run the web app: `npm run dev`.
-5. Apply both migrations in order (`001_initial_schema.sql`, then `002_security_and_dynamic_setup.sql`) to a **dedicated NetPulse Supabase project** using the Supabase SQL editor or CLI.
+5. Apply migrations in order (`001_initial_schema.sql`, `002_security_and_dynamic_setup.sql`, then `003_operational_hardening.sql`) to a **dedicated NetPulse Supabase project** using the Supabase SQL editor or CLI.
 6. For the public worker, install `requirements.txt` and set its required environment variables.
 7. For a private LAN, install the agent on a machine that can route to the monitored subnets and configure its agent token.
 
@@ -77,7 +77,7 @@ python -m unittest discover -s tests -v
 4. Install `agent.py` inside each private network that needs monitoring. Allow outbound HTTPS to the configured API and ICMP from the agent to authorized targets.
 5. Test a known reachable target, a blocked-ICMP target, agent disconnect, and recovery before enabling notifications.
 
-The schema is provisioned in the NetPulse Supabase project. Production rollout still requires configuring server-side secrets, adding the first trusted Auth user to `organization_members`, disabling public sign-ups, connecting the Vercel frontend, and testing from the actual target networks.
+The schema migrations 001–002 are provisioned in the NetPulse Supabase project. Apply migration 003 before deploying the hardening branch. Production rollout still requires confirming server-side secrets, adding the first trusted Auth user to `organization_members`, disabling public sign-ups, connecting the Vercel frontend, and testing from the actual target networks.
 
 
 ## Private agent enrollment
@@ -87,3 +87,15 @@ The schema is provisioned in the NetPulse Supabase project. Production rollout s
 3. Generate a random agent token, for example with `openssl rand -hex 32`. Store only its SHA-256 hash in `monitoring_agents.token_hash`: `insert into public.monitoring_agents(name, token_hash) values ('LAN Agent', encode(digest('PASTE_RANDOM_TOKEN_HERE', 'sha256'), 'hex')) returning id;`.
 4. Configure `NETPULSE_AGENT_ID` with the returned UUID and `NETPULSE_AGENT_TOKEN` with the original random token. Assign each private device to that agent using `devices.agent_id`.
 5. Install the agent on a machine inside the relevant network and allow outbound HTTPS to the worker URL plus ICMP to the approved target devices.
+
+
+## Operational hardening notes
+
+- The public worker now uses `icmplib` with unprivileged ICMP sockets instead of depending on an operating-system `ping` executable. Some hosts or containers still restrict ICMP datagram sockets; verify a known reachable target in the deployed environment.
+- The worker health endpoint reports `database_configured`, `scheduler_enabled`, and `last_scheduler_run`. An HTTP 200 only means the API process is responsive; it does not guarantee the scheduler or target network is healthy.
+- An incident is opened after two consecutive failed ICMP results to reduce transient-loss noise. Recovery resolves both open and acknowledged incidents. ICMP alone cannot prove that an application or service is healthy.
+- Incident acknowledgement is persisted and incident status changes are recorded in `audit_log` after migration 003.
+- The overview chart shows recent persisted fleet ping results, not synthetic data. The availability percentage on the overview is a current-state snapshot, not a time-weighted SLA.
+- Migration 003 creates a unique index allowing at most one open/acknowledged incident per device. Review existing incident rows before applying it if migrating a non-empty environment.
+- CI runs Python unit tests, TypeScript checks, and a Next.js production build. Passing CI is necessary but not a substitute for staging checks, ICMP capability checks, database migration review, and end-to-end testing.
+- Alert delivery channels (email/SMS/chat/webhook), SNMP polling, service-level HTTP/TCP checks, multi-tenant isolation, and HA scheduler leasing are not implemented by this ICMP-first V1. Do not represent them as available until implemented and tested.
