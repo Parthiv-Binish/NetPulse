@@ -248,7 +248,7 @@ export default function Home() {
 
         {page === "Incidents" && <section className="panel full-table"><div className="panel-header"><div><h2>Incident queue</h2><p>Network reachability events and recovery status</p></div><button className="button button-secondary" onClick={() => {
           const rows = [["Device","Title","Severity","Status","Started","Resolved"], ...incidents.map(inc => [devices.find(d => d.id === inc.device_id)?.name || inc.title, inc.title, inc.severity, inc.status, inc.started_at, inc.resolved_at || ""])];
-          const csv = rows.map(row => row.map(value => `"${String(value).replaceAll('"','""')}"`).join(",")).join("\\n");
+          const csv = rows.map(row => row.map(value => `"${String(value).replaceAll('"','""')}"`).join(",")).join("\n");
           const url = URL.createObjectURL(new Blob([csv], {type:"text/csv;charset=utf-8;"}));
           const a = document.createElement("a"); a.href = url; a.download = "netpulse-incidents.csv"; a.click(); URL.revokeObjectURL(url);
         }}><Download size={15}/> Export incidents</button></div><div className="incident-list incident-list-large">{incidents.map(inc=>{const device=devices.find(d=>d.id===inc.device_id);return <div className="incident-row" key={inc.id}><span className={`incident-icon ${inc.severity}`}><AlertTriangle size={15}/></span><div className="incident-copy"><strong>{device?.name || inc.title}</strong><span>{inc.title}</span><small>Started {new Date(inc.started_at).toLocaleString()}</small></div><span className={`incident-state ${inc.status}`}>{inc.status}</span>{inc.status === "open" && <button className="button button-secondary button-small" onClick={() => acknowledgeIncident(inc)}>Acknowledge</button>}</div>;})}</div></section>}
