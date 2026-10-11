@@ -164,24 +164,24 @@ alter table public.maintenance_windows enable row level security;
 alter table public.audit_log enable row level security;
 
 create policy "authenticated read settings" on public.organization_settings for select to authenticated using (public.is_netpulse_member());
-create policy "authenticated update settings" on public.organization_settings for update to authenticated using (public.is_netpulse_member()) with check (true);
+create policy "authenticated update settings" on public.organization_settings for update to authenticated using (public.is_netpulse_admin()) with check (public.is_netpulse_admin());
 create policy "authenticated read locations" on public.locations for select to authenticated using (public.is_netpulse_member());
-create policy "authenticated manage locations" on public.locations for all to authenticated using (public.is_netpulse_member()) with check (true);
+create policy "authenticated manage locations" on public.locations for all to authenticated using (public.is_netpulse_operator()) with check (public.is_netpulse_operator());
 create policy "authenticated read agents" on public.monitoring_agents for select to authenticated using (public.is_netpulse_member());
 create policy "authenticated read devices" on public.devices for select to authenticated using (public.is_netpulse_member());
-create policy "authenticated manage devices" on public.devices for all to authenticated using (public.is_netpulse_member()) with check (true);
+create policy "authenticated manage devices" on public.devices for all to authenticated using (public.is_netpulse_operator()) with check (public.is_netpulse_operator());
 create policy "authenticated read results" on public.ping_results for select to authenticated using (public.is_netpulse_member());
 create policy "authenticated read jobs" on public.ping_jobs for select to authenticated using (public.is_netpulse_member());
-create policy "authenticated create jobs" on public.ping_jobs for insert to authenticated with check (public.is_netpulse_member());
+create policy "authenticated create jobs" on public.ping_jobs for insert to authenticated with check (public.is_netpulse_operator());
 create policy "authenticated read incidents" on public.incidents for select to authenticated using (public.is_netpulse_member());
-create policy "authenticated update incidents" on public.incidents for update to authenticated using (public.is_netpulse_member()) with check (true);
+create policy "authenticated update incidents" on public.incidents for update to authenticated using (public.is_netpulse_operator()) with check (public.is_netpulse_operator());
 create policy "authenticated read maintenance" on public.maintenance_windows for select to authenticated using (public.is_netpulse_member());
-create policy "authenticated manage maintenance" on public.maintenance_windows for all to authenticated using (public.is_netpulse_member()) with check (true);
+create policy "authenticated manage maintenance" on public.maintenance_windows for all to authenticated using (public.is_netpulse_operator()) with check (public.is_netpulse_operator());
 create policy "authenticated read audit log" on public.audit_log for select to authenticated using (public.is_netpulse_member());
 
 -- The organization has one default settings row. Adjust the name after provisioning.
 insert into public.organization_settings(name) values ('My Organization');
 
--- Important: these RLS policies assume the Supabase Auth project is dedicated to one organization.
--- For user invitations and stricter roles, add an organization_members table and role-checking policies before
--- onboarding multiple organizations or untrusted users.
+-- V1 uses an explicit membership allowlist. Add each trusted Auth user to organization_members.
+-- Disable public sign-ups. Admins can manage inventory; operators can edit inventory and incidents;
+-- viewers have read-only access. Service-role workers bypass RLS and must keep secrets server-side.
