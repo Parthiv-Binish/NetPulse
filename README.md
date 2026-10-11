@@ -13,7 +13,7 @@ NetPulse is a single-organization, ICMP-first network availability monitor for p
 ## Repository layout
 
 - `app/`: responsive NetPulse UI.
-- `lib/`: shared types, demo data, and Supabase browser client.
+- `lib/`: shared types and Supabase browser client.
 - `supabase/migrations/`: schema, indexes, RLS, and helper functions.
 - `worker.py`: public target checker and health endpoint.
 - `agent.py`: private-network agent.
@@ -25,11 +25,11 @@ NetPulse is a single-organization, ICMP-first network availability monitor for p
 2. Copy `.env.example` to `.env.local` and configure Supabase values.
 3. Install dependencies: `npm install`.
 4. Run the web app: `npm run dev`.
-5. Apply `supabase/migrations/001_initial_schema.sql` to a **dedicated NetPulse Supabase project** using the Supabase SQL editor or CLI.
+5. Apply both migrations in order (`001_initial_schema.sql`, then `002_security_and_dynamic_setup.sql`) to a **dedicated NetPulse Supabase project** using the Supabase SQL editor or CLI.
 6. For the public worker, install `requirements.txt` and set its required environment variables.
 7. For a private LAN, install the agent on a machine that can route to the monitored subnets and configure its agent token.
 
-When Supabase environment variables are absent, the UI uses clearly-labelled demo data; mutations in demo mode are local to the current browser session. Configure Supabase before using real inventory.
+NetPulse does not seed sample inventory or hardcoded master data. A fresh install starts with zero locations, devices, agents, incidents, ping results, and settings rows. Add organization settings and inventory through your authorized setup flow after provisioning; without Supabase configured, the UI remains in an empty setup state.
 
 ## Environment variables
 
@@ -71,13 +71,13 @@ python -m unittest discover -s tests -v
 
 ## Deployment overview
 
-1. Create a dedicated Supabase project and apply the SQL migration.
+1. Create a dedicated Supabase project and apply both SQL migrations in order. No operational master data is seeded.
 2. Import this repository into Vercel; configure the two public Supabase variables.
 3. Create a Render Python web service using the repository root, build command `pip install -r requirements.txt`, and start command `python worker.py`. Configure server-side secrets. For high reliability, move the scheduler to a Render Background Worker or other always-on process.
 4. Install `agent.py` inside each private network that needs monitoring. Allow outbound HTTPS to the configured API and ICMP from the agent to authorized targets.
 5. Test a known reachable target, a blocked-ICMP target, agent disconnect, and recovery before enabling notifications.
 
-This is an initial V1 implementation scaffold. Production rollout still requires provisioning the dedicated Supabase project, configuring secrets, reviewing the SQL policies, and testing from the actual target networks.
+The schema is provisioned in the NetPulse Supabase project. Production rollout still requires configuring server-side secrets, adding the first trusted Auth user to `organization_members`, disabling public sign-ups, connecting the Vercel frontend, and testing from the actual target networks.
 
 
 ## Private agent enrollment
