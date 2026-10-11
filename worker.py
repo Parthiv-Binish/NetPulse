@@ -26,6 +26,7 @@ app = FastAPI(title="NetPulse Worker", version="0.1.0")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
 SERVICE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 WORKER_TOKEN = os.getenv("WORKER_TOKEN", "")
+ALERT_WEBHOOK_URL = os.getenv("ALERT_WEBHOOK_URL", "").strip()
 INTERVAL = max(15, int(os.getenv("CHECK_INTERVAL_SECONDS", "60")))
 ATTEMPTS = max(1, min(5, int(os.getenv("PING_ATTEMPTS", "3"))))
 TIMEOUT = max(1, min(5, int(os.getenv("PING_TIMEOUT_SECONDS", "2"))))
@@ -191,6 +192,30 @@ async def agent_results(result: AgentResult, authorization: str | None = Header(
     await update_incident_state(result.device_id, result.success, checked_at)
     return {"accepted": True}
 
+async def notify_event(event: str, device_id: str, title: str, checked_at: str) -> None:
+    """Send optional HTTPS JSON alerts; delivery failures never stop monitoring."""
+    if not ALERT_WEBHOOK_URL:
+        return
+    parsed = urlparse(ALERT_WEBHOOK_URL)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        print("NetPulse alert webhook skipped: URL must be HTTPS without embedded credentials.")
+        return
+    payload = {
+        "text": f"NetPulse {event}: {title} (device {device_id}) at {checked_at}",
+        "event": event,
+        "device_id": device_id,
+        "title": title,
+        "checked_at": checked_at,
+        "service": "netpulse",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            response = await client.post(ALERT_WEBHOOK_URL, json=payload)
+            response.raise_for_status()
+    except Exception as exc:
+        print(f"NetPulse alert delivery failed: {type(exc).__name__}")
+
+
 async def update_incident_state(device_id: str, success: bool, checked_at: str):
     """Debounce transient packet loss; recover both open and acknowledged incidents."""
     active = await sb_request(
@@ -204,6 +229,7 @@ async def update_incident_state(device_id: str, success: bool, checked_at: str):
                 params={"device_id": f"eq.{device_id}", "status": "in.(open,acknowledged)"},
                 body={"status": "resolved", "resolved_at": checked_at},
             )
+            await notify_event("recovered", device_id, "Target reachable again", checked_at)
         return
     # Require two consecutive failed checks before opening an incident to reduce alert flapping.
     recent = await sb_request(
@@ -216,6 +242,7 @@ async def update_incident_state(device_id: str, success: bool, checked_at: str):
             "POST", "incidents",
             body={"device_id": device_id, "title": "Ping target unreachable", "severity": "critical", "status": "open", "started_at": checked_at},
         )
+        await notify_event("incident_opened", device_id, "Ping target unreachable", checked_at)
 
 async def process_public_jobs():
     jobs = await sb_request("GET", "ping_jobs", params={"select": "id,device_id", "status": "eq.queued", "order": "created_at.asc", "limit": "100"})
