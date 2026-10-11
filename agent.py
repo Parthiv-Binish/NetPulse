@@ -69,7 +69,7 @@ def main():
                             result = do_ping(task["host"])
                         except (ValueError, socket.gaierror) as exc:
                             result = {"success": False, "latency_ms": None, "packet_loss": 100, "error": str(exc)}
-                        client.post(f"{API_URL}/api/agent-results", headers=headers, json={"agent_id": AGENT_ID, "device_id": task["device_id"], **result, "checked_at": datetime.now(timezone.utc).isoformat()}).raise_for_status()
+                        client.post(f"{API_URL}/api/agent-results", headers=headers, json={"agent_id": AGENT_ID, "device_id": task["device_id"], "job_id": task.get("job_id"), **result, "checked_at": datetime.now(timezone.utc).isoformat()}).raise_for_status()
             except Exception as exc:
                 print(f"Agent cycle failed: {type(exc).__name__}: {exc}")
             time.sleep(max(1, POLL_SECONDS - (time.monotonic() - started)))
